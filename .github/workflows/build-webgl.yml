@@ -57,6 +57,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Verify GitHub Pages root
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: test -f Builds/WebGL/WebGL/index.html
+
       - name: Configure GitHub Pages
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
@@ -67,7 +71,7 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: Builds/WebGL
+          path: Builds/WebGL/WebGL
 
   deploy-pages:
     name: Deploy GitHub Pages
