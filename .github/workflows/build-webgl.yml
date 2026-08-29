@@ -1,14 +1,8 @@
 name: Build WebGL
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "Assets/**"
-      - "Packages/**"
-      - "ProjectSettings/**"
-      - ".github/workflows/build-webgl.yml"
 
 permissions:
   contents: read
