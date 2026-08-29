@@ -1,18 +1,18 @@
-name: Build WebGL
+name: Build and Deploy WebGL
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-      - master
   pull_request:
     branches:
       - main
-      - master
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: webgl-${{ github.ref }}
@@ -49,10 +49,37 @@ jobs:
           buildsPath: Builds
           buildName: WebGL
 
-      - name: Upload WebGL artifact
+      - name: Upload downloadable WebGL artifact
         uses: actions/upload-artifact@v4
         with:
           name: mergeur-webgl-${{ github.sha }}
           path: Builds/WebGL
           if-no-files-found: error
           retention-days: 14
+
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload GitHub Pages artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: Builds/WebGL
+
+  deploy-pages:
+    name: Deploy GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build-webgl
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
