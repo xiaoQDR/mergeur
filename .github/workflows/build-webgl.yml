@@ -38,6 +38,11 @@ jobs:
           restore-keys: |
             Library-WebGL-
 
+      - name: Enable WebGL decompression fallback
+        run: |
+          sed -i 's/webGLDecompressionFallback: 0/webGLDecompressionFallback: 1/' ProjectSettings/ProjectSettings.asset
+          grep 'webGLDecompressionFallback' ProjectSettings/ProjectSettings.asset
+
       - name: Build WebGL
         uses: game-ci/unity-builder@v4
         env:
