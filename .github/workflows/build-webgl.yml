@@ -1,0 +1,75 @@
+name: Build WebGL
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Assets/**"
+      - "Packages/**"
+      - "ProjectSettings/**"
+      - ".github/workflows/build-webgl.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webgl-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build WebGL with Tuanjie
+    runs-on: [self-hosted, Windows, X64, tuanjie]
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve Tuanjie editor
+        id: editor
+        shell: pwsh
+        env:
+          CONFIGURED_EDITOR: ${{ vars.TUANJIE_EDITOR_PATH }}
+        run: |
+          $candidates = @(
+            $env:CONFIGURED_EDITOR,
+            "C:\Program Files\Tuanjie Hub\Editor\1.10.2\Editor\Tuanjie.exe",
+            "C:\Program Files\Tuanjie\Hub\Editor\1.10.2\Editor\Tuanjie.exe"
+          ) | Where-Object { $_ }
+
+          $editor = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $editor) {
+            throw "Tuanjie Editor was not found. Set the repository variable TUANJIE_EDITOR_PATH to the full path of Tuanjie.exe."
+          }
+
+          "path=$editor" >> $env:GITHUB_OUTPUT
+
+      - name: Build WebGL
+        shell: pwsh
+        run: |
+          $logPath = Join-Path $env:RUNNER_TEMP "tuanjie-webgl-build.log"
+          & "${{ steps.editor.outputs.path }}" `
+            -batchmode `
+            -nographics `
+            -quit `
+            -projectPath "$env:GITHUB_WORKSPACE" `
+            -executeMethod WebGLBuild.Build `
+            -logFile "$logPath"
+
+          $exitCode = $LASTEXITCODE
+          if (Test-Path -LiteralPath $logPath) {
+            Get-Content -LiteralPath $logPath
+          }
+          if ($exitCode -ne 0) {
+            throw "Tuanjie WebGL build failed with exit code $exitCode."
+          }
+
+      - name: Upload WebGL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebGL-${{ github.sha }}
+          path: Build/WebGL
+          if-no-files-found: error
+          retention-days: 14
