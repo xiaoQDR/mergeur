@@ -1,4 +1,6 @@
+using System.Collections;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using VContainer;
 using VContainer.Unity;
 
@@ -6,10 +8,12 @@ namespace Mergeur.Core
 {
     /// <summary>
     /// Application composition root. Keep registrations here and business logic in services.
+    /// Bootstrap stays loaded as the persistent UI layer while the gameplay scene is loaded additively underneath it.
     /// </summary>
     public sealed class Bootstrap : LifetimeScope
     {
         private const int TargetFrameRate = 60;
+        private const string GameScenePath = "Assets/Game/Scenes/Game.unity";
 
         [SerializeField] private UIManager uiManager;
         [SerializeField] private RivePopupRouter popupRouter;
@@ -51,6 +55,35 @@ namespace Mergeur.Core
             }
 
             builder.RegisterEntryPoint<RiveRouteService>(Lifetime.Singleton).AsSelf();
+        }
+
+        private IEnumerator Start()
+        {
+            // Keep Bootstrap loaded so its Screen Space - Overlay Rive canvas remains above gameplay.
+            // Game is loaded additively, which gives us gameplay + Rive UI at the same time.
+            Scene gameScene = SceneManager.GetSceneByPath(GameScenePath);
+            if (!gameScene.IsValid() || !gameScene.isLoaded)
+            {
+                AsyncOperation loadOperation = SceneManager.LoadSceneAsync(GameScenePath, LoadSceneMode.Additive);
+                if (loadOperation == null)
+                {
+                    Debug.LogError($"Bootstrap failed to start gameplay scene: {GameScenePath}");
+                    yield break;
+                }
+
+                yield return loadOperation;
+                gameScene = SceneManager.GetSceneByPath(GameScenePath);
+            }
+
+            if (gameScene.IsValid() && gameScene.isLoaded)
+            {
+                // Make Game the active scene for runtime-created gameplay objects while Bootstrap stays loaded.
+                SceneManager.SetActiveScene(gameScene);
+            }
+            else
+            {
+                Debug.LogError($"Bootstrap could not find the loaded gameplay scene: {GameScenePath}");
+            }
         }
 
         private void Update()
