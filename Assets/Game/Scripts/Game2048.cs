@@ -1,6 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
+using UnityEngine.UI;
 
 namespace Mergeur.Game2048
 {
@@ -21,6 +24,16 @@ namespace Mergeur.Game2048
         private Vector2 pointerStart;
         private bool pointerTracking;
 
+        private readonly Image[] tileBackgrounds = new Image[Size * Size];
+        private readonly Text[] tileLabels = new Text[Size * Size];
+
+        private Font uiFont;
+        private Text scoreLabel;
+        private Text bestScoreLabel;
+        private GameObject resultOverlay;
+        private Text resultMessage;
+        private GameObject continueButtonObject;
+
         private enum Direction
         {
             Left,
@@ -34,6 +47,8 @@ namespace Mergeur.Game2048
             Application.targetFrameRate = 60;
             Screen.orientation = ScreenOrientation.Portrait;
             bestScore = PlayerPrefs.GetInt(BestScoreKey, 0);
+            EnsureEventSystem();
+            BuildUI();
             NewGame();
         }
 
@@ -164,12 +179,14 @@ namespace Mergeur.Game2048
 
             SpawnTile();
             SpawnTile();
+            RefreshUI();
         }
 
         private void ContinueGame()
         {
             continueAfterWin = true;
             won = false;
+            RefreshUI();
         }
 
         private void Move(Direction direction)
@@ -219,6 +236,8 @@ namespace Mergeur.Game2048
             {
                 gameOver = true;
             }
+
+            RefreshUI();
         }
 
         private int[] ReadLine(int index, Direction direction)
@@ -384,166 +403,236 @@ namespace Mergeur.Game2048
             return false;
         }
 
-        private void OnGUI()
+        private void BuildUI()
         {
-            float baseScale = Screen.width / 1080f;
-            if (Screen.height / baseScale < 1200f)
-            {
-                baseScale = Screen.height / 1200f;
-            }
+            uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
-            float logicalWidth = Screen.width / baseScale;
-            float logicalHeight = Screen.height / baseScale;
+            var canvasObject = CreateUIObject("Game UI", transform);
+            var canvas = canvasObject.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = -100;
+            canvasObject.AddComponent<GraphicRaycaster>();
 
-            Matrix4x4 previousMatrix = GUI.matrix;
-            GUI.matrix = Matrix4x4.Scale(new Vector3(baseScale, baseScale, 1f));
+            var scaler = canvasObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1080f, 1920f);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
 
-            DrawSolidRect(new Rect(0f, 0f, logicalWidth, logicalHeight), Hex("#FAF8EF"));
+            Image background = CreateImage("Background", canvasObject.transform, Hex("#FAF8EF"));
+            Stretch(background.rectTransform);
 
-            float sidePadding = Mathf.Max(40f, (logicalWidth - 1000f) * 0.5f);
-            float headerY = 72f;
+            var content = CreateUIObject("Content", canvasObject.transform).GetComponent<RectTransform>();
+            content.anchorMin = new Vector2(0.5f, 1f);
+            content.anchorMax = new Vector2(0.5f, 1f);
+            content.pivot = new Vector2(0.5f, 1f);
+            content.anchoredPosition = Vector2.zero;
+            content.sizeDelta = new Vector2(1000f, 1400f);
 
-            var titleStyle = CreateLabelStyle(108, FontStyle.Bold, TextAnchor.MiddleLeft, Hex("#776E65"));
-            GUI.Label(new Rect(sidePadding, headerY, 430f, 130f), "2048", titleStyle);
+            Text title = CreateText("Title", content, "2048", 108, FontStyle.Bold, TextAnchor.MiddleLeft, Hex("#776E65"));
+            SetRect(title.rectTransform, new Vector2(0f, -72f), new Vector2(430f, 130f), new Vector2(0f, 1f));
 
-            float statWidth = 190f;
-            float statHeight = 112f;
-            float statGap = 18f;
-            float statsX = logicalWidth - sidePadding - statWidth * 2f - statGap;
+            scoreLabel = CreateStatCard("Score", content, "SCORE", new Vector2(600f, -72f));
+            bestScoreLabel = CreateStatCard("Best", content, "BEST", new Vector2(808f, -72f));
 
-            DrawStatCard(new Rect(statsX, headerY, statWidth, statHeight), "SCORE", score);
-            DrawStatCard(new Rect(statsX + statWidth + statGap, headerY, statWidth, statHeight), "BEST", bestScore);
+            Text hint = CreateText("Hint", content, "Swipe to move. Join matching numbers and reach 2048.",
+                31, FontStyle.Normal, TextAnchor.MiddleLeft, Hex("#776E65"));
+            SetRect(hint.rectTransform, new Vector2(0f, -205f), new Vector2(730f, 66f), new Vector2(0f, 1f));
 
-            var hintStyle = CreateLabelStyle(31, FontStyle.Normal, TextAnchor.MiddleLeft, Hex("#776E65"));
-            GUI.Label(new Rect(sidePadding, 205f, logicalWidth - sidePadding * 2f - 250f, 66f),
-                "Swipe to move. Join matching numbers and reach 2048.", hintStyle);
+            Button newGameButton = CreateButton("New Game", content, "NEW GAME", new Vector2(790f, -210f), new Vector2(210f, 62f));
+            newGameButton.onClick.AddListener(NewGame);
 
-            var buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = 30,
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleCenter
-            };
+            Image boardBackground = CreateImage("Board", content, Hex("#BBADA0"));
+            SetRect(boardBackground.rectTransform, new Vector2(50f, -320f), new Vector2(900f, 900f), new Vector2(0f, 1f));
 
-            if (GUI.Button(new Rect(logicalWidth - sidePadding - 210f, 210f, 210f, 62f), "NEW GAME", buttonStyle))
-            {
-                NewGame();
-            }
-
-            float boardTop = 320f;
-            float boardSize = Mathf.Min(900f, logicalWidth - sidePadding * 2f, logicalHeight - boardTop - 70f);
-            boardSize = Mathf.Max(520f, boardSize);
-
-            float boardX = (logicalWidth - boardSize) * 0.5f;
-            Rect boardRect = new Rect(boardX, boardTop, boardSize, boardSize);
-            DrawSolidRect(boardRect, Hex("#BBADA0"));
-
-            float gap = Mathf.Max(14f, boardSize * 0.018f);
-            float cellSize = (boardSize - gap * 5f) / Size;
+            var gridObject = CreateUIObject("Tiles", boardBackground.transform);
+            var gridRect = gridObject.GetComponent<RectTransform>();
+            Stretch(gridRect, 16f);
+            var grid = gridObject.AddComponent<GridLayoutGroup>();
+            grid.cellSize = new Vector2(205f, 205f);
+            grid.spacing = new Vector2(16f, 16f);
+            grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            grid.constraintCount = Size;
+            grid.childAlignment = TextAnchor.UpperLeft;
 
             for (int y = 0; y < Size; y++)
             {
                 for (int x = 0; x < Size; x++)
                 {
-                    Rect cellRect = new Rect(
-                        boardX + gap + x * (cellSize + gap),
-                        boardTop + gap + y * (cellSize + gap),
-                        cellSize,
-                        cellSize);
+                    int index = y * Size + x;
+                    Image tile = CreateImage($"Tile {x + 1},{y + 1}", gridObject.transform, Hex("#CDC1B4"));
+                    Text label = CreateText("Value", tile.transform, string.Empty, 72, FontStyle.Bold,
+                        TextAnchor.MiddleCenter, Hex("#776E65"));
+                    Stretch(label.rectTransform);
+                    tileBackgrounds[index] = tile;
+                    tileLabels[index] = label;
+                }
+            }
 
+            BuildResultOverlay(boardBackground.transform);
+        }
+
+        private static void EnsureEventSystem()
+        {
+            if (EventSystem.current != null || FindFirstObjectByType<EventSystem>() != null)
+            {
+                return;
+            }
+
+            var eventSystemObject = new GameObject("EventSystem");
+            eventSystemObject.AddComponent<EventSystem>();
+            eventSystemObject.AddComponent<InputSystemUIInputModule>();
+        }
+
+        private void BuildResultOverlay(Transform boardTransform)
+        {
+            Image overlayImage = CreateImage("Result Overlay", boardTransform, WithAlpha(Hex("#EEE4DA"), 0.88f));
+            Stretch(overlayImage.rectTransform);
+            resultOverlay = overlayImage.gameObject;
+
+            resultMessage = CreateText("Message", overlayImage.transform, string.Empty, 66, FontStyle.Bold,
+                TextAnchor.MiddleCenter, Hex("#776E65"));
+            SetRect(resultMessage.rectTransform, new Vector2(0f, -250f), new Vector2(900f, 120f), new Vector2(0.5f, 1f));
+
+            continueButtonObject = CreateButton("Keep Going", overlayImage.transform, "KEEP GOING",
+                new Vector2(-142f, -500f), new Vector2(260f, 78f), new Vector2(0.5f, 1f)).gameObject;
+            continueButtonObject.GetComponent<Button>().onClick.AddListener(ContinueGame);
+
+            Button restartButton = CreateButton("Restart", overlayImage.transform, "NEW GAME",
+                new Vector2(142f, -500f), new Vector2(260f, 78f), new Vector2(0.5f, 1f));
+            restartButton.onClick.AddListener(NewGame);
+        }
+
+        private Text CreateStatCard(string name, Transform parent, string caption, Vector2 position)
+        {
+            Image card = CreateImage(name, parent, Hex("#BBADA0"));
+            SetRect(card.rectTransform, position, new Vector2(190f, 112f), new Vector2(0f, 1f));
+
+            Text captionLabel = CreateText("Caption", card.transform, caption, 24, FontStyle.Bold,
+                TextAnchor.UpperCenter, Hex("#EEE4DA"));
+            SetRect(captionLabel.rectTransform, new Vector2(0f, -12f), new Vector2(190f, 36f), new Vector2(0.5f, 1f));
+
+            Text valueLabel = CreateText("Value", card.transform, "0", 42, FontStyle.Bold,
+                TextAnchor.MiddleCenter, Color.white);
+            SetRect(valueLabel.rectTransform, new Vector2(0f, -42f), new Vector2(190f, 62f), new Vector2(0.5f, 1f));
+            return valueLabel;
+        }
+
+        private Button CreateButton(string name, Transform parent, string label, Vector2 position, Vector2 size,
+            Vector2? anchor = null)
+        {
+            Image image = CreateImage(name, parent, Hex("#8F7A66"));
+            image.raycastTarget = true;
+            SetRect(image.rectTransform, position, size, anchor ?? new Vector2(0f, 1f));
+
+            var button = image.gameObject.AddComponent<Button>();
+            var colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = Hex("#F2B179");
+            colors.pressedColor = Hex("#EDC22E");
+            button.colors = colors;
+
+            Text text = CreateText("Label", image.transform, label, 28, FontStyle.Bold,
+                TextAnchor.MiddleCenter, Color.white);
+            Stretch(text.rectTransform);
+            return button;
+        }
+
+        private Text CreateText(string name, Transform parent, string value, int fontSize, FontStyle fontStyle,
+            TextAnchor alignment, Color color)
+        {
+            var textObject = CreateUIObject(name, parent);
+            var text = textObject.AddComponent<Text>();
+            text.font = uiFont;
+            text.text = value;
+            text.fontSize = fontSize;
+            text.fontStyle = fontStyle;
+            text.alignment = alignment;
+            text.color = color;
+            text.raycastTarget = false;
+            text.resizeTextForBestFit = false;
+            return text;
+        }
+
+        private static Image CreateImage(string name, Transform parent, Color color)
+        {
+            var imageObject = CreateUIObject(name, parent);
+            var image = imageObject.AddComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
+            return image;
+        }
+
+        private static GameObject CreateUIObject(string name, Transform parent)
+        {
+            var result = new GameObject(name, typeof(RectTransform));
+            result.transform.SetParent(parent, false);
+            return result;
+        }
+
+        private static void SetRect(RectTransform rect, Vector2 position, Vector2 size, Vector2 anchor)
+        {
+            rect.anchorMin = anchor;
+            rect.anchorMax = anchor;
+            rect.pivot = new Vector2(anchor.x, anchor.y);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+        }
+
+        private static void Stretch(RectTransform rect, float inset = 0f)
+        {
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = new Vector2(inset, inset);
+            rect.offsetMax = new Vector2(-inset, -inset);
+        }
+
+        private void RefreshUI()
+        {
+            if (scoreLabel == null)
+            {
+                return;
+            }
+
+            scoreLabel.text = score.ToString();
+            bestScoreLabel.text = bestScore.ToString();
+
+            for (int y = 0; y < Size; y++)
+            {
+                for (int x = 0; x < Size; x++)
+                {
+                    int index = y * Size + x;
                     int value = board[x, y];
-                    DrawSolidRect(cellRect, value == 0 ? Hex("#CDC1B4") : TileColor(value));
-
-                    if (value == 0)
-                    {
-                        continue;
-                    }
-
-                    int fontSize = value < 100 ? 72 : value < 1000 ? 62 : value < 10000 ? 50 : 40;
-                    var tileStyle = CreateLabelStyle(fontSize, FontStyle.Bold, TextAnchor.MiddleCenter, TileTextColor(value));
-                    GUI.Label(cellRect, value.ToString(), tileStyle);
+                    tileBackgrounds[index].color = value == 0 ? Hex("#CDC1B4") : TileColor(value);
+                    tileLabels[index].text = value == 0 ? string.Empty : value.ToString();
+                    tileLabels[index].color = TileTextColor(value);
+                    tileLabels[index].fontSize = value < 100 ? 72 : value < 1000 ? 62 : value < 10000 ? 50 : 40;
                 }
             }
 
-            if (won && !continueAfterWin)
+            bool showWin = won && !continueAfterWin;
+            bool showResult = showWin || gameOver;
+            resultOverlay.SetActive(showResult);
+            if (!showResult)
             {
-                DrawOverlay(boardRect, "You reached 2048!", true, buttonStyle);
-            }
-            else if (gameOver)
-            {
-                DrawOverlay(boardRect, "Game over", false, buttonStyle);
+                return;
             }
 
-            GUI.matrix = previousMatrix;
+            resultMessage.text = showWin ? "You reached 2048!" : "Game over";
+            continueButtonObject.SetActive(showWin);
+
+            Button restartButton = resultOverlay.transform.Find("Restart").GetComponent<Button>();
+            Text restartLabel = restartButton.GetComponentInChildren<Text>();
+            restartLabel.text = showWin ? "NEW GAME" : "TRY AGAIN";
+            RectTransform restartRect = restartButton.GetComponent<RectTransform>();
+            restartRect.anchoredPosition = showWin ? new Vector2(142f, -500f) : new Vector2(0f, -500f);
         }
 
-        private void DrawOverlay(Rect boardRect, string message, bool canContinue, GUIStyle buttonStyle)
+        private static Color WithAlpha(Color color, float alpha)
         {
-            Color overlay = Hex("#EEE4DA");
-            overlay.a = 0.88f;
-            DrawSolidRect(boardRect, overlay);
-
-            var messageStyle = CreateLabelStyle(66, FontStyle.Bold, TextAnchor.MiddleCenter, Hex("#776E65"));
-            GUI.Label(new Rect(boardRect.x, boardRect.y + boardRect.height * 0.28f, boardRect.width, 120f), message, messageStyle);
-
-            float buttonWidth = 260f;
-            float buttonHeight = 78f;
-            float centerX = boardRect.center.x;
-
-            if (canContinue)
-            {
-                if (GUI.Button(new Rect(centerX - buttonWidth - 12f, boardRect.y + boardRect.height * 0.55f, buttonWidth, buttonHeight),
-                        "KEEP GOING", buttonStyle))
-                {
-                    ContinueGame();
-                }
-
-                if (GUI.Button(new Rect(centerX + 12f, boardRect.y + boardRect.height * 0.55f, buttonWidth, buttonHeight),
-                        "NEW GAME", buttonStyle))
-                {
-                    NewGame();
-                }
-            }
-            else
-            {
-                if (GUI.Button(new Rect(centerX - buttonWidth * 0.5f, boardRect.y + boardRect.height * 0.55f, buttonWidth, buttonHeight),
-                        "TRY AGAIN", buttonStyle))
-                {
-                    NewGame();
-                }
-            }
-        }
-
-        private static void DrawStatCard(Rect rect, string label, int value)
-        {
-            DrawSolidRect(rect, Hex("#BBADA0"));
-
-            var labelStyle = CreateLabelStyle(24, FontStyle.Bold, TextAnchor.UpperCenter, Hex("#EEE4DA"));
-            var valueStyle = CreateLabelStyle(42, FontStyle.Bold, TextAnchor.LowerCenter, Color.white);
-
-            GUI.Label(new Rect(rect.x, rect.y + 12f, rect.width, 36f), label, labelStyle);
-            GUI.Label(new Rect(rect.x, rect.y + 34f, rect.width, 62f), value.ToString(), valueStyle);
-        }
-
-        private static GUIStyle CreateLabelStyle(int fontSize, FontStyle fontStyle, TextAnchor alignment, Color color)
-        {
-            var style = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = fontSize,
-                fontStyle = fontStyle,
-                alignment = alignment,
-                wordWrap = false
-            };
-            style.normal.textColor = color;
-            return style;
-        }
-
-        private static void DrawSolidRect(Rect rect, Color color)
-        {
-            Color previous = GUI.color;
-            GUI.color = color;
-            GUI.DrawTexture(rect, Texture2D.whiteTexture);
-            GUI.color = previous;
+            color.a = alpha;
+            return color;
         }
 
         private static Color TileTextColor(int value)
