@@ -1,33 +1,30 @@
 using System;
 using Rive;
 using Rive.Components;
-using UnityEngine;
 using VContainer.Unity;
 
 namespace Mergeur.Core
 {
     /// <summary>
-    /// Converts Rive state-machine events into UI navigation requests.
+    /// Routes the single main Rive widget between artboards in merge_main.riv.
     /// </summary>
     public sealed class RiveRouteService : IStartable, ITickable, IDisposable
     {
+        private const string MainViewId = "main";
         private const string LogoViewId = "logo";
-        private const string InitialRouteViewId = "home";
-        private const string GameViewId = "game";
-        private const string LogoFadeOutEvent = "fadeOut";
-        private const string HomeMainButtonTrigger = "mainBtnTrigget";
-
-        private static readonly string[] RoutePrefixes =
-        {
-            "route:", "route/", "navigate:", "navigate/"
-        };
+        private const string HomeArtboardName = "Home";
+        private const string HomeStateMachineName = "HomeSM";
+        private const string GameArtboardName = "Game";
+        private const string GameStateMachineName = "GameSM";
+        private const string MainButtonTriggerName = "mainBtnTrigget";
+        private const string LogoFadeOutEventName = "fadeOut";
 
         private readonly UIManager uiManager;
-        private string pendingRoute;
-        private string currentRouteView = InitialRouteViewId;
-        private RiveWidget homeWidget;
+
+        private RiveWidget mainWidget;
         private ViewModelInstance homeViewModel;
-        private ViewModelInstanceTriggerProperty homeMainButtonTrigger;
+        private ViewModelInstanceTriggerProperty mainButtonTrigger;
+        private bool pendingGameLoad;
         private bool pendingLogoHide;
         private bool started;
 
@@ -45,7 +42,8 @@ namespace Mergeur.Core
 
             started = true;
             uiManager.Initialize();
-            homeWidget = uiManager.GetWidget(InitialRouteViewId);
+            mainWidget = uiManager.GetWidget(MainViewId);
+
             foreach (var widget in uiManager.Widgets)
             {
                 if (widget != null)
@@ -53,48 +51,74 @@ namespace Mergeur.Core
                     widget.OnRiveEventReported += OnRiveEventReported;
                 }
             }
+
+            EnsureHomeIsLoaded();
         }
 
         public void Tick()
         {
-            ApplyPendingRoute();
+            ApplyPendingGameLoad();
             ApplyPendingLogoHide();
-            BindHomeMainButtonTrigger();
+            BindMainButtonTrigger();
         }
 
-        private void BindHomeMainButtonTrigger()
+        private void EnsureHomeIsLoaded()
         {
-            var viewModel = homeWidget?.StateMachine?.ViewModelInstance;
+            if (mainWidget == null || mainWidget.Asset == null)
+            {
+                return;
+            }
+
+            if (!string.Equals(mainWidget.ArtboardName, HomeArtboardName, StringComparison.Ordinal) ||
+                !string.Equals(mainWidget.StateMachineName, HomeStateMachineName, StringComparison.Ordinal))
+            {
+                mainWidget.Load(mainWidget.Asset, HomeArtboardName, HomeStateMachineName);
+            }
+        }
+
+        private void BindMainButtonTrigger()
+        {
+            if (mainWidget == null ||
+                !string.Equals(mainWidget.ArtboardName, HomeArtboardName, StringComparison.Ordinal))
+            {
+                UnbindMainButtonTrigger();
+                return;
+            }
+
+            var viewModel = mainWidget.StateMachine?.ViewModelInstance;
             if (viewModel == null || ReferenceEquals(homeViewModel, viewModel))
             {
                 return;
             }
 
-            UnbindHomeMainButtonTrigger();
+            UnbindMainButtonTrigger();
             homeViewModel = viewModel;
-            homeMainButtonTrigger = viewModel.GetTriggerProperty(HomeMainButtonTrigger);
-            if (homeMainButtonTrigger == null)
+            mainButtonTrigger = viewModel.GetTriggerProperty(MainButtonTriggerName);
+            if (mainButtonTrigger != null)
+            {
+                mainButtonTrigger.OnTriggered += OnMainButtonTriggered;
+            }
+        }
+
+        private void OnMainButtonTriggered()
+        {
+            pendingGameLoad = true;
+        }
+
+        private void ApplyPendingGameLoad()
+        {
+            if (!pendingGameLoad)
             {
                 return;
             }
 
-            homeMainButtonTrigger.OnTriggered += OnHomeMainButtonTriggered;
-        }
+            pendingGameLoad = false;
+            UnbindMainButtonTrigger();
 
-        private void OnHomeMainButtonTriggered()
-        {
-            pendingRoute = GameViewId;
-        }
-
-        private void UnbindHomeMainButtonTrigger()
-        {
-            if (homeMainButtonTrigger != null)
+            if (mainWidget?.Asset != null)
             {
-                homeMainButtonTrigger.OnTriggered -= OnHomeMainButtonTriggered;
+                mainWidget.Load(mainWidget.Asset, GameArtboardName, GameStateMachineName);
             }
-
-            homeMainButtonTrigger = null;
-            homeViewModel = null;
         }
 
         private void ApplyPendingLogoHide()
@@ -108,36 +132,23 @@ namespace Mergeur.Core
             uiManager.Hide(LogoViewId);
         }
 
-        private void ApplyPendingRoute()
+        private void OnRiveEventReported(ReportedEvent reportedEvent)
         {
-            if (string.IsNullOrEmpty(pendingRoute))
+            if (string.Equals(reportedEvent.Name, LogoFadeOutEventName, StringComparison.OrdinalIgnoreCase))
             {
-                return;
+                pendingLogoHide = true;
             }
-
-            var route = pendingRoute;
-            pendingRoute = null;
-            if (!string.Equals(currentRouteView, route, StringComparison.OrdinalIgnoreCase))
-            {
-                uiManager.Hide(currentRouteView);
-            }
-
-            if (!uiManager.Show(route))
-            {
-                return;
-            }
-
-            currentRouteView = route;
         }
 
-        private void QueueLogoHide()
+        private void UnbindMainButtonTrigger()
         {
-            if (pendingLogoHide)
+            if (mainButtonTrigger != null)
             {
-                return;
+                mainButtonTrigger.OnTriggered -= OnMainButtonTriggered;
             }
 
-            pendingLogoHide = true;
+            mainButtonTrigger = null;
+            homeViewModel = null;
         }
 
         public void Dispose()
@@ -155,59 +166,11 @@ namespace Mergeur.Core
                 }
             }
 
-            started = false;
-            pendingRoute = null;
+            UnbindMainButtonTrigger();
+            mainWidget = null;
+            pendingGameLoad = false;
             pendingLogoHide = false;
-            currentRouteView = InitialRouteViewId;
-            UnbindHomeMainButtonTrigger();
-            homeWidget = null;
-        }
-
-        private void OnRiveEventReported(ReportedEvent reportedEvent)
-        {
-            var isFadeOutEvent = string.Equals(
-                reportedEvent.Name,
-                LogoFadeOutEvent,
-                StringComparison.OrdinalIgnoreCase);
-            if (isFadeOutEvent)
-            {
-                QueueLogoHide();
-            }
-
-            var route = reportedEvent["route"] as string;
-            if (string.IsNullOrWhiteSpace(route))
-            {
-                route = RouteFromEventName(reportedEvent.Name);
-            }
-
-            if (!string.IsNullOrWhiteSpace(route))
-            {
-                pendingRoute = route.Trim();
-            }
-        }
-
-        private string RouteFromEventName(string eventName)
-        {
-            if (string.IsNullOrWhiteSpace(eventName))
-            {
-                return null;
-            }
-
-            var trimmedName = eventName.Trim();
-            if (uiManager.Contains(trimmedName))
-            {
-                return trimmedName;
-            }
-
-            foreach (var prefix in RoutePrefixes)
-            {
-                if (trimmedName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    return trimmedName.Substring(prefix.Length).Trim();
-                }
-            }
-
-            return null;
+            started = false;
         }
     }
 }

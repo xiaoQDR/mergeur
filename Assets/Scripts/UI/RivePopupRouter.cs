@@ -22,39 +22,48 @@ namespace Mergeur.Core
     {
         [SerializeField] private RiveWidget popupWidget;
         [SerializeField] private GameObject popupRoot;
-        [SerializeField] private Asset homePopups;
-        [SerializeField] private Asset gamePopups;
-        [SerializeField] private Asset resultPopups;
+        [SerializeField] private Asset popups;
+
+        private Vector3 visibleScale = Vector3.one;
+        private HitTestBehavior visibleHitTestBehavior;
+        private bool initialized;
 
         public PopupRoute? Current { get; private set; }
-        public bool IsOpen => popupRoot != null && popupRoot.activeSelf;
+        public bool IsOpen => Current.HasValue;
 
         private void Awake()
         {
-            if (popupRoot == null && popupWidget != null)
-            {
-                popupRoot = popupWidget.gameObject;
-            }
-
-            popupRoot?.SetActive(false);
+            Initialize();
+            SetVisible(false);
         }
 
         public void Show(PopupRoute route)
         {
+            Initialize();
             var definition = GetDefinition(route);
-            if (popupWidget == null || popupRoot == null || definition.Asset == null)
+            if (popupWidget == null || popupRoot == null || popups == null)
             {
+                Debug.LogError(
+                    $"[{nameof(RivePopupRouter)}] Cannot show {route}: " +
+                    "popupWidget, popupRoot, or popups is not assigned.",
+                    this);
                 return;
             }
 
-            popupRoot.SetActive(true);
-            popupWidget.Load(definition.Asset, definition.Artboard, definition.StateMachine);
+            popupWidget.Load(popups, definition.Artboard, definition.StateMachine);
             Current = route;
+            SetVisible(true);
+
+            Debug.Log(
+                $"[{nameof(RivePopupRouter)}] Showing {route}: " +
+                $"{definition.Artboard}/{definition.StateMachine}.",
+                this);
         }
 
         public void Hide()
         {
-            popupRoot?.SetActive(false);
+            Initialize();
+            SetVisible(false);
             Current = null;
         }
 
@@ -98,17 +107,81 @@ namespace Mergeur.Core
         [ContextMenu("Test Popup/Hide")]
         private void TestHide()
         {
-            if (Application.isPlaying)
+            if (!Application.isPlaying)
             {
-                Hide();
+                Debug.LogWarning(
+                    $"[{nameof(RivePopupRouter)}] Popup tests only run in Play Mode.",
+                    this);
+                return;
             }
+
+            Hide();
         }
 
         private void Test(PopupRoute route)
         {
-            if (Application.isPlaying)
+            if (!Application.isPlaying)
             {
-                Show(route);
+                Debug.LogWarning(
+                    $"[{nameof(RivePopupRouter)}] Popup tests only run in Play Mode.",
+                    this);
+                return;
+            }
+
+            Show(route);
+        }
+
+        private void Initialize()
+        {
+            if (initialized)
+            {
+                return;
+            }
+
+            initialized = true;
+            if (popupRoot == null && popupWidget != null)
+            {
+                popupRoot = popupWidget.gameObject;
+            }
+
+            if (popupRoot == null || popupWidget == null)
+            {
+                return;
+            }
+
+            // Keep the Rive widget registered with its panel. Rive 0.4.x can leave
+            // native rendering/input state invalid after repeated disable/enable cycles.
+            if (!popupRoot.activeSelf)
+            {
+                popupRoot.SetActive(true);
+            }
+
+            visibleScale = popupRoot.transform.localScale;
+            visibleHitTestBehavior = popupWidget.HitTestBehavior;
+        }
+
+        private void SetVisible(bool visible)
+        {
+            if (popupRoot == null || popupWidget == null)
+            {
+                return;
+            }
+
+            if (!popupRoot.activeSelf)
+            {
+                popupRoot.SetActive(true);
+            }
+
+            if (visible)
+            {
+                popupRoot.transform.localScale = visibleScale;
+                popupWidget.HitTestBehavior = visibleHitTestBehavior;
+                popupRoot.transform.SetAsLastSibling();
+            }
+            else
+            {
+                popupWidget.HitTestBehavior = HitTestBehavior.None;
+                popupRoot.transform.localScale = Vector3.zero;
             }
         }
 
@@ -117,23 +190,23 @@ namespace Mergeur.Core
             switch (route)
             {
                 case PopupRoute.PlayerProfile:
-                    return new PopupDefinition(homePopups, "PlayerProfilePopup ", "PlayerProfilePopupSM");
+                    return new PopupDefinition("PlayerProfilePopup ", "PlayerProfilePopupSM");
                 case PopupRoute.LevelSelect:
-                    return new PopupDefinition(homePopups, "LevelSelectPopup", "LevelSelectPopupSM");
+                    return new PopupDefinition("LevelSelectPopup", "LevelSelectPopupSM");
                 case PopupRoute.HomeSettings:
-                    return new PopupDefinition(homePopups, "HomeSettingsPopup", "HomeSettingsPopupSM");
+                    return new PopupDefinition("HomeSettingsPopup", "HomeSettingsPopupSM");
                 case PopupRoute.GameSettings:
-                    return new PopupDefinition(gamePopups, "GameSettingsPopup", "GameSettingsPopupSM");
+                    return new PopupDefinition("GameSettingsPopup", "GameSettingsPopupSM");
                 case PopupRoute.ExitConfirm:
-                    return new PopupDefinition(gamePopups, "ExitConfirmPopup ", "ExitConfirmPopupSM");
+                    return new PopupDefinition("ExitConfirmPopup ", "ExitConfirmPopupSM");
                 case PopupRoute.EnergyCost:
-                    return new PopupDefinition(gamePopups, "EnergyCostPopup", "EnergyCostPopupSM");
+                    return new PopupDefinition("EnergyCostPopup", "EnergyCostPopupSM");
                 case PopupRoute.Victory:
-                    return new PopupDefinition(resultPopups, "VictoryPopup", "VictoryPopupSM");
+                    return new PopupDefinition("VictoryPopup", "VictoryPopupSM");
                 case PopupRoute.Defeat:
-                    return new PopupDefinition(resultPopups, "DefeatPopup", "DefeatPopupSM");
+                    return new PopupDefinition("DefeatPopup", "DefeatPopupSM");
                 case PopupRoute.Reward:
-                    return new PopupDefinition(resultPopups, "RewardPopup", "RewardPopupSM");
+                    return new PopupDefinition("RewardPopup", "RewardPopupSM");
                 default:
                     return default;
             }
@@ -141,14 +214,12 @@ namespace Mergeur.Core
 
         private readonly struct PopupDefinition
         {
-            public PopupDefinition(Asset asset, string artboard, string stateMachine)
+            public PopupDefinition(string artboard, string stateMachine)
             {
-                Asset = asset;
                 Artboard = artboard;
                 StateMachine = stateMachine;
             }
 
-            public Asset Asset { get; }
             public string Artboard { get; }
             public string StateMachine { get; }
         }
