@@ -412,8 +412,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Rive.Runtime.Components::Rive.Components.RiveWidget
   m_rivePanel: {fileID: 71657386}
   m_asset: {fileID: -4516626237390682484, guid: 8e1b5e8c33f702746b7c35269ac26c4b, type: 3}
-  m_artboardName: Game
-  m_stateMachineName: GameSM
+  m_artboardName: Home
+  m_stateMachineName: HomeSM
   m_fit: 7
   m_alignment:
     m_x: 0
