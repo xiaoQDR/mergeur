@@ -311,7 +311,7 @@ MonoBehaviour:
   m_customRenderTargetStrategy: {fileID: 0}
   m_updateMode: 0
   m_disableEditorPreview: 0
-  m_drawOptimization: 1
+  m_drawOptimization: 0
   m_multiTouchSupport: 1
 --- !u!114 &71657387
 MonoBehaviour:
