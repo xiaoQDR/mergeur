@@ -17,20 +17,26 @@ namespace Mergeur.Core
         private const string GameArtboardName = "Game";
         private const string GameStateMachineName = "GameSM";
         private const string MainButtonTriggerName = "mainBtnTrigget";
+        private const string PlayerProfileButtonTriggerName = "playerProfileBtnTrigger";
+        private const string SettingsButtonTriggerName = "settingsBtnTrigger";
         private const string LogoFadeOutEventName = "fadeOut";
 
         private readonly UIManager uiManager;
+        private readonly RivePopupRouter popupRouter;
 
         private RiveWidget mainWidget;
         private ViewModelInstance homeViewModel;
         private ViewModelInstanceTriggerProperty mainButtonTrigger;
+        private ViewModelInstanceTriggerProperty playerProfileButtonTrigger;
+        private ViewModelInstanceTriggerProperty settingsButtonTrigger;
         private bool pendingGameLoad;
         private bool pendingLogoHide;
         private bool started;
 
-        public RiveRouteService(UIManager uiManager)
+        public RiveRouteService(UIManager uiManager, RivePopupRouter popupRouter)
         {
             this.uiManager = uiManager;
+            this.popupRouter = popupRouter;
         }
 
         public void Start()
@@ -94,15 +100,37 @@ namespace Mergeur.Core
             UnbindMainButtonTrigger();
             homeViewModel = viewModel;
             mainButtonTrigger = viewModel.GetTriggerProperty(MainButtonTriggerName);
+            playerProfileButtonTrigger = viewModel.GetTriggerProperty(PlayerProfileButtonTriggerName);
+            settingsButtonTrigger = viewModel.GetTriggerProperty(SettingsButtonTriggerName);
             if (mainButtonTrigger != null)
             {
                 mainButtonTrigger.OnTriggered += OnMainButtonTriggered;
+            }
+
+            if (playerProfileButtonTrigger != null)
+            {
+                playerProfileButtonTrigger.OnTriggered += OnPlayerProfileButtonTriggered;
+            }
+
+            if (settingsButtonTrigger != null)
+            {
+                settingsButtonTrigger.OnTriggered += OnSettingsButtonTriggered;
             }
         }
 
         private void OnMainButtonTriggered()
         {
             pendingGameLoad = true;
+        }
+
+        private void OnPlayerProfileButtonTriggered()
+        {
+            popupRouter.ShowPlayerProfile();
+        }
+
+        private void OnSettingsButtonTriggered()
+        {
+            popupRouter.ShowHomeSettings();
         }
 
         private void ApplyPendingGameLoad()
@@ -147,7 +175,19 @@ namespace Mergeur.Core
                 mainButtonTrigger.OnTriggered -= OnMainButtonTriggered;
             }
 
+            if (playerProfileButtonTrigger != null)
+            {
+                playerProfileButtonTrigger.OnTriggered -= OnPlayerProfileButtonTriggered;
+            }
+
+            if (settingsButtonTrigger != null)
+            {
+                settingsButtonTrigger.OnTriggered -= OnSettingsButtonTriggered;
+            }
+
             mainButtonTrigger = null;
+            playerProfileButtonTrigger = null;
+            settingsButtonTrigger = null;
             homeViewModel = null;
         }
 
