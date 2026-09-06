@@ -19,16 +19,19 @@ namespace Mergeur.Core
         private const string MainButtonTriggerName = "mainBtnTrigget";
         private const string PlayerProfileButtonTriggerName = "playerProfileBtnTrigger";
         private const string SettingsButtonTriggerName = "settingsBtnTrigger";
-        private const string LogoFadeOutEventName = "fadeOut";
+        private const string LogoFadeExitTriggerName = "lodingFadeExit";
 
         private readonly UIManager uiManager;
         private readonly RivePopupRouter popupRouter;
 
         private RiveWidget mainWidget;
+        private RiveWidget logoWidget;
         private ViewModelInstance homeViewModel;
+        private ViewModelInstance logoViewModel;
         private ViewModelInstanceTriggerProperty mainButtonTrigger;
         private ViewModelInstanceTriggerProperty playerProfileButtonTrigger;
         private ViewModelInstanceTriggerProperty settingsButtonTrigger;
+        private ViewModelInstanceTriggerProperty logoFadeExitTrigger;
         private bool pendingGameLoad;
         private bool pendingLogoHide;
         private bool started;
@@ -49,13 +52,12 @@ namespace Mergeur.Core
             started = true;
             uiManager.Initialize();
             mainWidget = uiManager.GetWidget(MainViewId);
+            logoWidget = uiManager.GetWidget(LogoViewId);
 
-            foreach (var widget in uiManager.Widgets)
+            if (logoWidget != null)
             {
-                if (widget != null)
-                {
-                    widget.OnRiveEventReported += OnRiveEventReported;
-                }
+                logoWidget.OnWidgetStatusChanged += OnLogoWidgetStatusChanged;
+                BindLogoFadeExitTrigger();
             }
 
             EnsureHomeIsLoaded();
@@ -66,6 +68,7 @@ namespace Mergeur.Core
             ApplyPendingGameLoad();
             ApplyPendingLogoHide();
             BindMainButtonTrigger();
+            BindLogoFadeExitTrigger();
         }
 
         private void EnsureHomeIsLoaded()
@@ -118,6 +121,34 @@ namespace Mergeur.Core
             }
         }
 
+        private void BindLogoFadeExitTrigger()
+        {
+            if (logoWidget == null)
+            {
+                UnbindLogoFadeExitTrigger();
+                return;
+            }
+
+            var viewModel = logoWidget.StateMachine?.ViewModelInstance;
+            if (viewModel == null || ReferenceEquals(logoViewModel, viewModel))
+            {
+                return;
+            }
+
+            UnbindLogoFadeExitTrigger();
+            logoViewModel = viewModel;
+            logoFadeExitTrigger = viewModel.GetTriggerProperty(LogoFadeExitTriggerName);
+            if (logoFadeExitTrigger != null)
+            {
+                logoFadeExitTrigger.OnTriggered += OnLogoFadeExitTriggered;
+            }
+        }
+
+        private void OnLogoWidgetStatusChanged()
+        {
+            BindLogoFadeExitTrigger();
+        }
+
         private void OnMainButtonTriggered()
         {
             pendingGameLoad = true;
@@ -160,12 +191,20 @@ namespace Mergeur.Core
             uiManager.Hide(LogoViewId);
         }
 
-        private void OnRiveEventReported(ReportedEvent reportedEvent)
+        private void OnLogoFadeExitTriggered()
         {
-            if (string.Equals(reportedEvent.Name, LogoFadeOutEventName, StringComparison.OrdinalIgnoreCase))
+            pendingLogoHide = true;
+        }
+
+        private void UnbindLogoFadeExitTrigger()
+        {
+            if (logoFadeExitTrigger != null)
             {
-                pendingLogoHide = true;
+                logoFadeExitTrigger.OnTriggered -= OnLogoFadeExitTriggered;
             }
+
+            logoFadeExitTrigger = null;
+            logoViewModel = null;
         }
 
         private void UnbindMainButtonTrigger()
@@ -198,16 +237,15 @@ namespace Mergeur.Core
                 return;
             }
 
-            foreach (var widget in uiManager.Widgets)
+            UnbindMainButtonTrigger();
+            UnbindLogoFadeExitTrigger();
+            if (logoWidget != null)
             {
-                if (widget != null)
-                {
-                    widget.OnRiveEventReported -= OnRiveEventReported;
-                }
+                logoWidget.OnWidgetStatusChanged -= OnLogoWidgetStatusChanged;
             }
 
-            UnbindMainButtonTrigger();
             mainWidget = null;
+            logoWidget = null;
             pendingGameLoad = false;
             pendingLogoHide = false;
             started = false;
